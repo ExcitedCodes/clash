@@ -105,7 +105,7 @@ type User struct {
 }
 
 // ServerHandshake fast-tracks SOCKS initialization to get target address to connect on server side.
-func ServerHandshake(rw net.Conn, authenticator auth.Authenticator) (addr Addr, command Command, user string, err error) {
+func ServerHandshake(rw net.Conn, authenticator auth.Authenticator, userMapping map[string]string) (addr Addr, command Command, user string, err error) {
 	// Read RFC 1928 for request and reply structure and sizes.
 	buf := make([]byte, MaxAddrLen)
 	// read VER, NMETHODS, METHODS
@@ -117,6 +117,7 @@ func ServerHandshake(rw net.Conn, authenticator auth.Authenticator) (addr Addr, 
 		return
 	}
 
+	var user string
 	// write VER METHOD
 	if authenticator != nil {
 		if _, err = rw.Write([]byte{5, 2}); err != nil {
@@ -188,7 +189,14 @@ func ServerHandshake(rw net.Conn, authenticator auth.Authenticator) (addr Addr, 
 	switch command {
 	case CmdConnect, CmdUDPAssociate:
 		// Acquire server listened address info
-		localAddr := ParseAddr(rw.LocalAddr().String())
+		// or User-specified address if userMapping is set.
+		var localAddr Addr
+		if len(userMapping) != 0 {
+			localAddr = ParseAddr(userMapping[user])
+		} else {
+			localAddr = ParseAddr(rw.LocalAddr().String())
+		}
+
 		if localAddr == nil {
 			err = ErrAddressNotSupported
 		} else {

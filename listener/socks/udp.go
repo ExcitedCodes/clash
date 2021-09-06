@@ -34,6 +34,28 @@ func (l *UDPListener) Close() error {
 }
 
 func NewUDP(addr string, in chan<- *inbound.PacketAdapter) (*UDPListener, error) {
+	return newUDP(addr, in, "")
+}
+
+func NewUDPWithUser(addr string, in chan<- *inbound.PacketAdapter, users []string) (map[string]*UDPListener, error) {
+	userMap := make(map[string]*UDPListener, len(users))
+	ip, _, _ := net.SplitHostPort(addr)
+	newAddr := net.JoinHostPort(ip, "0")
+
+	for _, user := range users {
+		lis, err := newUDP(newAddr, in, user)
+		if err != nil {
+			for _, lis := range userMap {
+				lis.Close()
+			}
+			return nil, err
+		}
+		userMap[user] = lis
+	}
+	return userMap, nil
+}
+
+func newUDP(addr string, in chan<- *inbound.PacketAdapter, user string) (*UDPListener, error) {
 	l, err := net.ListenPacket("udp", addr)
 	if err != nil {
 		return nil, err
@@ -45,7 +67,7 @@ func NewUDP(addr string, in chan<- *inbound.PacketAdapter) (*UDPListener, error)
 
 	sl := &UDPListener{
 		packetConn: l,
-		addr:       addr,
+		addr:       l.LocalAddr().String(),
 	}
 	go func() {
 		for {
@@ -58,14 +80,14 @@ func NewUDP(addr string, in chan<- *inbound.PacketAdapter) (*UDPListener, error)
 				}
 				continue
 			}
-			handleSocksUDP(l, in, buf[:n], remoteAddr)
+			handleSocksUDP(l, in, buf[:n], remoteAddr, user)
 		}
 	}()
 
 	return sl, nil
 }
 
-func handleSocksUDP(pc net.PacketConn, in chan<- *inbound.PacketAdapter, buf []byte, addr net.Addr) {
+func handleSocksUDP(pc net.PacketConn, in chan<- *inbound.PacketAdapter, buf []byte, addr net.Addr, user string) {
 	target, payload, err := socks5.DecodeUDPPacket(buf)
 	if err != nil {
 		// Unresolved UDP packet, return buffer to the pool
@@ -79,7 +101,7 @@ func handleSocksUDP(pc net.PacketConn, in chan<- *inbound.PacketAdapter, buf []b
 		bufRef:  buf,
 	}
 	select {
-	case in <- inbound.NewPacket(target, packet, C.SOCKS5):
+	case in <- inbound.NewPacket(target, packet, C.SOCKS5, user):
 	default:
 	}
 }

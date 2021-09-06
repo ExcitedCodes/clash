@@ -117,7 +117,6 @@ func ServerHandshake(rw net.Conn, authenticator auth.Authenticator, userMapping 
 		return
 	}
 
-	var user string
 	// write VER METHOD
 	if authenticator != nil {
 		if _, err = rw.Write([]byte{5, 2}); err != nil {

@@ -80,7 +80,7 @@ func handleSocks(conn net.Conn, in chan<- C.ConnContext) {
 }
 
 func HandleSocks4(conn net.Conn, in chan<- C.ConnContext) {
-	addr, _, err := socks4.ServerHandshake(conn, authStore.Authenticator())
+	addr, _, user, err := socks4.ServerHandshake(conn, authStore.Authenticator())
 	if err != nil {
 		conn.Close()
 		return
@@ -88,11 +88,11 @@ func HandleSocks4(conn net.Conn, in chan<- C.ConnContext) {
 	if c, ok := conn.(*net.TCPConn); ok {
 		c.SetKeepAlive(true)
 	}
-	in <- inbound.NewSocket(socks5.ParseAddr(addr), conn, C.SOCKS4)
+	in <- inbound.NewSocket(socks5.ParseAddr(addr), conn, C.SOCKS4, user)
 }
 
 func HandleSocks5(conn net.Conn, in chan<- C.ConnContext) {
-	target, command, err := socks5.ServerHandshake(conn, authStore.Authenticator())
+	target, command, user, err := socks5.ServerHandshake(conn, authStore.Authenticator())
 	if err != nil {
 		conn.Close()
 		return
@@ -105,5 +105,5 @@ func HandleSocks5(conn net.Conn, in chan<- C.ConnContext) {
 		io.Copy(ioutil.Discard, conn)
 		return
 	}
-	in <- inbound.NewSocket(target, conn, C.SOCKS5)
+	in <- inbound.NewSocket(target, conn, C.SOCKS5, user)
 }

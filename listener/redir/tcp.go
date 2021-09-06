@@ -62,5 +62,5 @@ func handleRedir(conn net.Conn, in chan<- C.ConnContext) {
 		return
 	}
 	conn.(*net.TCPConn).SetKeepAlive(true)
-	in <- inbound.NewSocket(target, conn, C.REDIR)
+	in <- inbound.NewSocket(target, conn, C.REDIR, "")
 }

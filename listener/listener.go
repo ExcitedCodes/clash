@@ -8,6 +8,7 @@ import (
 
 	"github.com/Dreamacro/clash/adapter/inbound"
 	C "github.com/Dreamacro/clash/constant"
+	authStore "github.com/Dreamacro/clash/listener/auth"
 	"github.com/Dreamacro/clash/listener/http"
 	"github.com/Dreamacro/clash/listener/mixed"
 	"github.com/Dreamacro/clash/listener/redir"
@@ -29,6 +30,9 @@ var (
 	tproxyUDPListener *tproxy.UDPListener
 	mixedListener     *mixed.Listener
 	mixedUDPLister    *socks.UDPListener
+
+	// used to determine whether to reload
+	userMap map[string]*socks.UDPListener
 
 	// lock for recreate function
 	socksMux  sync.Mutex
@@ -60,6 +64,13 @@ func SetAllowLan(al bool) {
 
 func SetBindAddress(host string) {
 	bindAddress = host
+}
+
+func cleanUpUserMap() {
+	for _, lis := range userMap {
+		lis.Close()
+	}
+	userMap = nil
 }
 
 func ReCreateHTTP(port int, tcpIn chan<- C.ConnContext) error {
@@ -95,9 +106,11 @@ func ReCreateSocks(port int, tcpIn chan<- C.ConnContext, udpIn chan<- *inbound.P
 	defer socksMux.Unlock()
 
 	addr := genAddr(bindAddress, port, allowLan)
+	currentUsers := authStore.Users()
 
 	shouldTCPIgnore := false
 	shouldUDPIgnore := false
+	shouldUserUDPIgnore := true
 
 	if socksListener != nil {
 		if socksListener.RawAddress() != addr {
@@ -117,7 +130,22 @@ func ReCreateSocks(port int, tcpIn chan<- C.ConnContext, udpIn chan<- *inbound.P
 		}
 	}
 
-	if shouldTCPIgnore && shouldUDPIgnore {
+	if userMap != nil {
+		if len(currentUsers) == len(userMap) {
+			for _, user := range currentUsers {
+				if _, ok := userMap[user]; !ok {
+					cleanUpUserMap()
+					shouldUserUDPIgnore = false
+					break
+				}
+			}
+		} else {
+			cleanUpUserMap()
+			shouldUserUDPIgnore = false
+		}
+	}
+
+	if shouldTCPIgnore && shouldUDPIgnore && shouldUserUDPIgnore {
 		return nil
 	}
 
@@ -135,6 +163,14 @@ func ReCreateSocks(port int, tcpIn chan<- C.ConnContext, udpIn chan<- *inbound.P
 		tcpListener.Close()
 		return err
 	}
+
+	userMap, err = socks.NewUDPWithUser(addr, udpIn, currentUsers)
+	if err != nil {
+		tcpListener.Close()
+		udpListener.Close()
+		return err
+	}
+	tcpListener.SetUDPUserMap(userMap)
 
 	socksListener = tcpListener
 	socksUDPListener = udpListener
@@ -230,9 +266,11 @@ func ReCreateMixed(port int, tcpIn chan<- C.ConnContext, udpIn chan<- *inbound.P
 	defer mixedMux.Unlock()
 
 	addr := genAddr(bindAddress, port, allowLan)
+	currentUsers := authStore.Users()
 
 	shouldTCPIgnore := false
 	shouldUDPIgnore := false
+	shouldUserUDPIgnore := true
 
 	if mixedListener != nil {
 		if mixedListener.RawAddress() != addr {
@@ -250,8 +288,22 @@ func ReCreateMixed(port int, tcpIn chan<- C.ConnContext, udpIn chan<- *inbound.P
 			shouldUDPIgnore = true
 		}
 	}
+	if userMap != nil {
+		if len(currentUsers) == len(userMap) {
+			for _, user := range currentUsers {
+				if _, ok := userMap[user]; !ok {
+					cleanUpUserMap()
+					shouldUserUDPIgnore = false
+					break
+				}
+			}
+		} else {
+			cleanUpUserMap()
+			shouldUserUDPIgnore = false
+		}
+	}
 
-	if shouldTCPIgnore && shouldUDPIgnore {
+	if shouldTCPIgnore && shouldUDPIgnore && shouldUserUDPIgnore {
 		return nil
 	}
 
@@ -270,6 +322,14 @@ func ReCreateMixed(port int, tcpIn chan<- C.ConnContext, udpIn chan<- *inbound.P
 		mixedListener.Close()
 		return err
 	}
+
+	userMap, err = socks.NewUDPWithUser(addr, udpIn, currentUsers)
+	if err != nil {
+		mixedListener.Close()
+		mixedUDPLister.Close()
+		return err
+	}
+	mixedListener.SetUDPUserMap(userMap)
 
 	log.Infoln("Mixed(http+socks) proxy listening at: %s", mixedListener.Address())
 	return nil

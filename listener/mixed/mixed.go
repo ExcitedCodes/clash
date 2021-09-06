@@ -18,6 +18,8 @@ type Listener struct {
 	addr     string
 	cache    *cache.Cache
 	closed   bool
+
+	udpUserMap map[string]string
 }
 
 // RawAddress implements C.Listener
@@ -34,6 +36,31 @@ func (l *Listener) Address() string {
 func (l *Listener) Close() error {
 	l.closed = true
 	return l.listener.Close()
+}
+
+// SetUDPUserMap inject user to mapping for socks5 udp associate
+func (l *Listener) SetUDPUserMap(userMap map[string]*socks.UDPListener) {
+	l.udpUserMap = make(map[string]string, len(userMap))
+	for user, lis := range userMap {
+		l.udpUserMap[user] = lis.RawAddress()
+	}
+}
+
+func (l *Listener) handleConn(conn net.Conn, in chan<- C.ConnContext) {
+	bufConn := N.NewBufferedConn(conn)
+	head, err := bufConn.Peek(1)
+	if err != nil {
+		return
+	}
+
+	switch head[0] {
+	case socks4.Version:
+		socks.HandleSocks4(bufConn, in)
+	case socks5.Version:
+		socks.HandleSocks5(bufConn, in, l.udpUserMap)
+	default:
+		http.HandleConn(bufConn, in, l.cache)
+	}
 }
 
 func New(addr string, in chan<- C.ConnContext) (*Listener, error) {
@@ -56,26 +83,9 @@ func New(addr string, in chan<- C.ConnContext) (*Listener, error) {
 				}
 				continue
 			}
-			go handleConn(c, in, ml.cache)
+			go ml.handleConn(c, in)
 		}
 	}()
 
 	return ml, nil
-}
-
-func handleConn(conn net.Conn, in chan<- C.ConnContext, cache *cache.Cache) {
-	bufConn := N.NewBufferedConn(conn)
-	head, err := bufConn.Peek(1)
-	if err != nil {
-		return
-	}
-
-	switch head[0] {
-	case socks4.Version:
-		socks.HandleSocks4(bufConn, in)
-	case socks5.Version:
-		socks.HandleSocks5(bufConn, in)
-	default:
-		http.HandleConn(bufConn, in, cache)
-	}
 }

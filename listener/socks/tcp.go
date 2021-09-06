@@ -17,6 +17,8 @@ type Listener struct {
 	listener net.Listener
 	addr     string
 	closed   bool
+
+	udpUserMap map[string]string
 }
 
 // RawAddress implements C.Listener
@@ -33,6 +35,32 @@ func (l *Listener) Address() string {
 func (l *Listener) Close() error {
 	l.closed = true
 	return l.listener.Close()
+}
+
+// SetUDPUserMap inject user to mapping for socks5 udp associate
+func (l *Listener) SetUDPUserMap(userMap map[string]*UDPListener) {
+	l.udpUserMap = make(map[string]string, len(userMap))
+	for user, lis := range userMap {
+		l.udpUserMap[user] = lis.addr
+	}
+}
+
+func (l *Listener) handleSocks(conn net.Conn, in chan<- C.ConnContext) {
+	bufConn := N.NewBufferedConn(conn)
+	head, err := bufConn.Peek(1)
+	if err != nil {
+		conn.Close()
+		return
+	}
+
+	switch head[0] {
+	case socks4.Version:
+		HandleSocks4(bufConn, in)
+	case socks5.Version:
+		HandleSocks5(bufConn, in, l.udpUserMap)
+	default:
+		conn.Close()
+	}
 }
 
 func New(addr string, in chan<- C.ConnContext) (*Listener, error) {
@@ -54,29 +82,11 @@ func New(addr string, in chan<- C.ConnContext) (*Listener, error) {
 				}
 				continue
 			}
-			go handleSocks(c, in)
+			go sl.handleSocks(c, in)
 		}
 	}()
 
 	return sl, nil
-}
-
-func handleSocks(conn net.Conn, in chan<- C.ConnContext) {
-	bufConn := N.NewBufferedConn(conn)
-	head, err := bufConn.Peek(1)
-	if err != nil {
-		conn.Close()
-		return
-	}
-
-	switch head[0] {
-	case socks4.Version:
-		HandleSocks4(bufConn, in)
-	case socks5.Version:
-		HandleSocks5(bufConn, in)
-	default:
-		conn.Close()
-	}
 }
 
 func HandleSocks4(conn net.Conn, in chan<- C.ConnContext) {
@@ -91,8 +101,8 @@ func HandleSocks4(conn net.Conn, in chan<- C.ConnContext) {
 	in <- inbound.NewSocket(socks5.ParseAddr(addr), conn, C.SOCKS4, user)
 }
 
-func HandleSocks5(conn net.Conn, in chan<- C.ConnContext) {
-	target, command, user, err := socks5.ServerHandshake(conn, authStore.Authenticator())
+func HandleSocks5(conn net.Conn, in chan<- C.ConnContext, userMapping map[string]string) {
+	target, command, user, err := socks5.ServerHandshake(conn, authStore.Authenticator(), userMapping)
 	if err != nil {
 		conn.Close()
 		return

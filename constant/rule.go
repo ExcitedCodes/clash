@@ -11,6 +11,7 @@ const (
 	SrcPort
 	DstPort
 	Process
+	AuthUser
 	MATCH
 )
 
@@ -36,6 +37,8 @@ func (rt RuleType) String() string {
 		return "DstPort"
 	case Process:
 		return "Process"
+	case AuthUser:
+		return "AuthUser"
 	case MATCH:
 		return "Match"
 	default:

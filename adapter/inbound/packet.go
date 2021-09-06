@@ -21,11 +21,11 @@ func NewPacket(target socks5.Addr, packet C.UDPPacket, source C.Type, user strin
 	metadata := parseSocksAddr(target)
 	metadata.NetWork = C.UDP
 	metadata.Type = source
-	metadata.AuthUser = user
 	if ip, port, err := parseAddr(packet.LocalAddr().String()); err == nil {
 		metadata.SrcIP = ip
 		metadata.SrcPort = port
 	}
+	metadata.AuthUser = user
 
 	return &PacketAdapter{
 		UDPPacket: packet,

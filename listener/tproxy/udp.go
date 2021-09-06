@@ -85,7 +85,7 @@ func handlePacketConn(pc net.PacketConn, in chan<- *inbound.PacketAdapter, buf [
 		buf:   buf,
 	}
 	select {
-	case in <- inbound.NewPacket(target, pkt, C.TPROXY):
+	case in <- inbound.NewPacket(target, pkt, C.TPROXY, ""):
 	default:
 	}
 }

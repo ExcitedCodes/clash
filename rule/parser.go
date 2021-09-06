@@ -33,6 +33,8 @@ func ParseRule(tp, payload, target string, params []string) (C.Rule, error) {
 		parsed, parseErr = NewPort(payload, target, false)
 	case "PROCESS-NAME":
 		parsed, parseErr = NewProcess(payload, target)
+	case "AUTH-USER":
+		parsed = NewAuthUser(payload, target)
 	case "MATCH":
 		parsed = NewMatch(target)
 	default:

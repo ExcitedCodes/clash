@@ -9,7 +9,7 @@ import (
 )
 
 // NewSocket receive TCP inbound and return ConnContext
-func NewSocket(target socks5.Addr, conn net.Conn, source C.Type) *context.ConnContext {
+func NewSocket(target socks5.Addr, conn net.Conn, source C.Type, user string) *context.ConnContext {
 	metadata := parseSocksAddr(target)
 	metadata.NetWork = C.TCP
 	metadata.Type = source
@@ -17,6 +17,7 @@ func NewSocket(target socks5.Addr, conn net.Conn, source C.Type) *context.ConnCo
 		metadata.SrcIP = ip
 		metadata.SrcPort = port
 	}
+	metadata.AuthUser = user
 
 	return context.NewConnContext(conn, metadata)
 }

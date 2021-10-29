@@ -72,6 +72,7 @@ type Metadata struct {
 	AddrType int     `json:"-"`
 	Host     string  `json:"host"`
 	DNSMode  DNSMode `json:"dnsMode"`
+	AuthUser string  `json:"-"`
 }
 
 func (m *Metadata) RemoteAddress() string {

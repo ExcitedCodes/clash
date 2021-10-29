@@ -15,9 +15,14 @@ import (
 	"github.com/Dreamacro/clash/log"
 )
 
+type authCache struct {
+	success bool
+	user    string
+}
+
 func HandleConn(c net.Conn, in chan<- C.ConnContext, cache *cache.Cache) {
 	client := newClient(c.RemoteAddr(), in)
-	defer client.CloseIdleConnections()
+	defer client.client.CloseIdleConnections()
 
 	conn := N.NewBufferedConn(c)
 
@@ -35,9 +40,10 @@ func HandleConn(c net.Conn, in chan<- C.ConnContext, cache *cache.Cache) {
 		keepAlive = strings.TrimSpace(strings.ToLower(request.Header.Get("Proxy-Connection"))) == "keep-alive"
 
 		var resp *http.Response
+		var user string
 
 		if !trusted {
-			resp = authenticate(request, cache)
+			resp, user = authenticate(request, cache)
 
 			trusted = resp == nil
 		}
@@ -49,7 +55,7 @@ func HandleConn(c net.Conn, in chan<- C.ConnContext, cache *cache.Cache) {
 					break // close connection
 				}
 
-				in <- inbound.NewHTTPS(request, conn)
+				in <- inbound.NewHTTPS(request, conn, user)
 
 				return // hijack connection
 			}
@@ -67,7 +73,8 @@ func HandleConn(c net.Conn, in chan<- C.ConnContext, cache *cache.Cache) {
 			if request.URL.Scheme == "" || request.URL.Host == "" {
 				resp = responseWith(request, http.StatusBadRequest)
 			} else {
-				resp, err = client.Do(request)
+				client.user = user
+				resp, err = client.client.Do(request)
 				if err != nil {
 					resp = responseWith(request, http.StatusBadGateway)
 				}
@@ -93,30 +100,35 @@ func HandleConn(c net.Conn, in chan<- C.ConnContext, cache *cache.Cache) {
 	conn.Close()
 }
 
-func authenticate(request *http.Request, cache *cache.Cache) *http.Response {
+func authenticate(request *http.Request, cache *cache.Cache) (resp *http.Response, user string) {
 	authenticator := authStore.Authenticator()
 	if authenticator != nil {
 		credential := parseBasicProxyAuthorization(request)
 		if credential == "" {
-			resp := responseWith(request, http.StatusProxyAuthRequired)
+			resp = responseWith(request, http.StatusProxyAuthRequired)
 			resp.Header.Set("Proxy-Authenticate", "Basic")
-			return resp
+			return
 		}
 
 		var authed interface{}
 		if authed = cache.Get(credential); authed == nil {
 			user, pass, err := decodeBasicProxyAuthorization(credential)
-			authed = err == nil && authenticator.Verify(user, pass)
+			authed = &authCache{
+				success: err == nil && authenticator.Verify(user, pass),
+				user:    user,
+			}
 			cache.Put(credential, authed, time.Minute)
 		}
-		if !authed.(bool) {
+		if !authed.(*authCache).success {
 			log.Infoln("Auth failed from %s", request.RemoteAddr)
 
-			return responseWith(request, http.StatusForbidden)
+			return responseWith(request, http.StatusForbidden), ""
 		}
+		user = authed.(*authCache).user
+		return
 	}
 
-	return nil
+	return
 }
 
 func responseWith(request *http.Request, statusCode int) *http.Response {
